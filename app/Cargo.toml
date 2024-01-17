@@ -1,0 +1,30 @@
+[package]
+name = "app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+# repository.workspace = true
+
+[features]
+default = ["use-installed-tools"]
+use-installed-tools = ["spirv-builder/use-installed-tools"]
+use-compiled-tools = ["spirv-builder/use-compiled-tools"]
+
+# use this to switch back to glsl shaders
+use-glsl-shader = []
+
+[dependencies]
+vulkano = "0.34"
+vulkano-shaders = "0.34"
+vulkano-win = "0.34"
+
+winit = "0.28"
+bytemuck = { version = "1.7", features = ["derive", "extern_crate_std", "min_const_generics"] }
+png = "0.17"
+
+shared = { path = "../shared" }
+voxtree = "0.1.2"
+cgmath = "0.18.0"
+
+[build-dependencies]
+spirv-builder = { version = "0.9", default-features = false }
