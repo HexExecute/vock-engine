@@ -27,9 +27,6 @@ pub struct RaytracingPipeline {
     memory_allocator: Arc<StandardMemoryAllocator>,
     command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
     descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
-    // palette: Subbuffer<[[f32; 4]]>,
-    // palette_size: u32,
-    // end_color: [f32; 4],
 }
 
 impl RaytracingPipeline {
@@ -40,31 +37,6 @@ impl RaytracingPipeline {
         command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
         descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
     ) -> Self {
-        // let colors = vec![
-        //     [1.0, 0.0, 0.0, 1.0],
-        //     [1.0, 1.0, 0.0, 1.0],
-        //     [0.0, 1.0, 0.0, 1.0],
-        //     [0.0, 1.0, 1.0, 1.0],
-        //     [0.0, 0.0, 1.0, 1.0],
-        //     [1.0, 0.0, 1.0, 1.0],
-        // ];
-        // let palette_size = colors.len() as u32;
-        // let palette = Buffer::from_iter(
-        //     memory_allocator.clone(),
-        //     BufferCreateInfo {
-        //         usage: BufferUsage::STORAGE_BUFFER,
-        //         ..Default::default()
-        //     },
-        //     AllocationCreateInfo {
-        //         memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
-        //             | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-        //         ..Default::default()
-        //     },
-        //     colors,
-        // )
-        // .unwrap();
-        // let end_color = [0.0; 4];
-
         let pipeline = {
             let device = queue.device();
             let cs = crate::cs::load(device.clone())
@@ -95,9 +67,6 @@ impl RaytracingPipeline {
             memory_allocator,
             command_buffer_allocator,
             descriptor_set_allocator,
-            // palette,
-            // palette_size,
-            // end_color,
         }
     }
 
@@ -108,10 +77,7 @@ impl RaytracingPipeline {
         let descriptor_set = PersistentDescriptorSet::new(
             &self.descriptor_set_allocator,
             descriptor_set_layout.clone(),
-            [
-                WriteDescriptorSet::image_view(0, image_view),
-                // WriteDescriptorSet::buffer(1, self.palette),
-            ],
+            [WriteDescriptorSet::image_view(0, image_view)],
             [],
         )
         .unwrap();

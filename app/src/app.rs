@@ -4,9 +4,12 @@ use voxtree::{Node, Voxtree};
 use vulkano::{
     buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer},
     command_buffer::{
-        allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferUsage,
-        CopyBufferToImageInfo, PrimaryCommandBufferAbstract, RenderPassBeginInfo, SubpassBeginInfo,
-        SubpassContents,
+        allocator::{
+            CommandBufferAllocator, StandardCommandBufferAllocator,
+            StandardCommandBufferAllocatorCreateInfo,
+        },
+        AutoCommandBufferBuilder, CommandBufferUsage, CopyBufferToImageInfo,
+        PrimaryCommandBufferAbstract, RenderPassBeginInfo, SubpassBeginInfo, SubpassContents,
     },
     descriptor_set::{
         allocator::{StandardDescriptorSetAlloc, StandardDescriptorSetAllocator},
@@ -46,6 +49,11 @@ use vulkano::{
     sync::{self, GpuFuture},
     DeviceSize, Validated, VulkanError, VulkanLibrary,
 };
+use vulkano_util::{
+    context::{VulkanoConfig, VulkanoContext},
+    renderer::{VulkanoWindowRenderer, DEFAULT_IMAGE_FORMAT},
+    window::{VulkanoWindows, WindowDescriptor},
+};
 use winit::{
     dpi::PhysicalSize,
     event::{Event, WindowEvent},
@@ -56,28 +64,23 @@ use winit::{
 use crate::{pixels_pipeline::PixelsPipeline, raytracing_pipeline::RaytracingPipeline};
 
 pub struct State {
-    window: Arc<Window>,
+    // window: Arc<Window>,
+    primary_window_renderer: &'static mut VulkanoWindowRenderer,
 
+    // image: Arc<Image>,
     device: Arc<Device>,
     queue: Arc<Queue>,
 
-    swapchain: Arc<Swapchain>,
-    recreate_swapchain: bool,
     render_pass: Arc<RenderPass>,
 
-    viewport: Viewport,
+    command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
 
     pixels_pipeline: PixelsPipeline,
     raytracing_pipeline: RaytracingPipeline,
 
-    command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
-
     node_buffer: Subbuffer<[[u32; 8]]>,
     voxel_buffer: Subbuffer<[f32]>,
 
-    previous_frame_end: Option<Box<dyn GpuFuture>>,
-    framebuffers: Vec<Arc<Framebuffer>>,
-    // descriptor_set: Arc<PersistentDescriptorSet<StandardDescriptorSetAlloc>>,
     tree: Voxtree<f32>,
 }
 
@@ -86,6 +89,7 @@ impl State {
         println!("app initialization...\n");
 
         let library = VulkanLibrary::new().unwrap();
+        let context = VulkanoContext::new(VulkanoConfig::default());
         let required_extensions = Surface::required_extensions(&event_loop);
         let instance = Instance::new(
             library,
@@ -97,6 +101,32 @@ impl State {
         )
         .expect("[𐄂] failed to create instance");
         println!("[✓] instance created");
+        let windows = VulkanoWindows::default();
+        let window_id = windows.create_window(
+            event_loop,
+            &context,
+            &WindowDescriptor {
+                title: "app".to_string(),
+                present_mode: PresentMode::Mailbox,
+                ..Default::default()
+            },
+            |_| {},
+        );
+        println!("[✓] window created");
+
+        let primary_window_renderer = windows
+            .get_primary_renderer_mut()
+            .expect("[𐄂] failed to create primary window renderer");
+        println!("[✓] primary window renderer created");
+
+        primary_window_renderer.add_additional_image_view(
+            0,
+            DEFAULT_IMAGE_FORMAT,
+            ImageUsage::SAMPLED | ImageUsage::STORAGE | ImageUsage::TRANSFER_DST,
+        );
+
+        let gfx_queue = context.graphics_queue();
+        // let device = queue.device();
 
         let tree: Voxtree<f32> = Voxtree::builder()
             .with_max_depth(8)
@@ -113,140 +143,124 @@ impl State {
             .build();
         println!("[✓] voxtree created");
 
-        let window = Arc::new(
-            WindowBuilder::new()
-                .with_title("app")
-                .with_inner_size(PhysicalSize::new(1024, 1024))
-                .build(event_loop)
-                .expect("[𐄂] failed to create window"),
-        );
-        println!("[✓] window created");
-        let surface = Surface::from_window(instance.clone(), window.clone()).unwrap();
+        // let window = Arc::new(
+        //     WindowBuilder::new()
+        //         .with_title("app")
+        //         .with_inner_size(PhysicalSize::new(1024, 1024))
+        //         .build(event_loop)
+        //         .expect("[𐄂] failed to create window"),
+        // );
+        // println!("[✓] window created");
+        // let surface = Surface::from_window(instance.clone(), window.clone()).unwrap();
 
-        let device_extensions = DeviceExtensions {
-            khr_swapchain: true,
-            khr_vulkan_memory_model: true,
-            ..Default::default()
-        };
-        let features = Features {
-            vulkan_memory_model: true,
-            ..Features::empty()
-        };
-        let (physical_device, queue_family_index) = instance
-            .enumerate_physical_devices()
-            .unwrap()
-            .filter(|p| p.supported_extensions().contains(&device_extensions))
-            .filter(|p| p.supported_features().contains(&features))
-            .filter_map(|p| {
-                p.queue_family_properties()
-                    .iter()
-                    .enumerate()
-                    .position(|(i, q)| {
-                        q.queue_flags.intersects(QueueFlags::GRAPHICS)
-                            && p.surface_support(i as u32, &surface).unwrap_or(false)
-                    })
-                    .map(|i| (p, i as u32))
-            })
-            .min_by_key(|(p, _)| match p.properties().device_type {
-                PhysicalDeviceType::DiscreteGpu => 0,
-                PhysicalDeviceType::IntegratedGpu => 1,
-                PhysicalDeviceType::VirtualGpu => 2,
-                PhysicalDeviceType::Cpu => 3,
-                PhysicalDeviceType::Other => 4,
-                _ => 5,
-            })
-            .unwrap();
+        // let device_extensions = DeviceExtensions {
+        //     khr_swapchain: true,
+        //     khr_vulkan_memory_model: true,
+        //     ..Default::default()
+        // };
+        // let features = Features {
+        //     vulkan_memory_model: true,
+        //     ..Features::empty()
+        // };
+        // let (physical_device, queue_family_index) = instance
+        //     .enumerate_physical_devices()
+        //     .unwrap()
+        //     .filter(|p| p.supported_extensions().contains(&device_extensions))
+        //     .filter(|p| p.supported_features().contains(&features))
+        //     .filter_map(|p| {
+        //         p.queue_family_properties()
+        //             .iter()
+        //             .enumerate()
+        //             .position(|(i, q)| {
+        //                 q.queue_flags.intersects(QueueFlags::GRAPHICS)
+        //                     && p.surface_support(i as u32, &surface).unwrap_or(false)
+        //             })
+        //             .map(|i| (p, i as u32))
+        //     })
+        //     .min_by_key(|(p, _)| match p.properties().device_type {
+        //         PhysicalDeviceType::DiscreteGpu => 0,
+        //         PhysicalDeviceType::IntegratedGpu => 1,
+        //         PhysicalDeviceType::VirtualGpu => 2,
+        //         PhysicalDeviceType::Cpu => 3,
+        //         PhysicalDeviceType::Other => 4,
+        //         _ => 5,
+        //     })
+        //     .unwrap();
+        //
+        // println!(
+        //     "[✓] using device: {} (type: {:?})",
+        //     physical_device.properties().device_name,
+        //     physical_device.properties().device_type,
+        // );
+        //
+        // let (device, mut queues) = Device::new(
+        //     physical_device,
+        //     DeviceCreateInfo {
+        //         enabled_extensions: device_extensions,
+        //         enabled_features: features,
+        //         queue_create_infos: vec![QueueCreateInfo {
+        //             queue_family_index,
+        //             ..Default::default()
+        //         }],
+        //         ..Default::default()
+        //     },
+        // )
+        // .expect("[𐄂] failed to create device");
+        // println!("[✓] device created");
 
-        println!(
-            "[✓] using device: {} (type: {:?})",
-            physical_device.properties().device_name,
-            physical_device.properties().device_type,
-        );
+        // let queue = queues.next().expect("[𐄂] failed to create queue");
+        // println!("[✓] queue created");
+        //
+        // let (swapchain, images) = {
+        //     let surface_capabilities = device
+        //         .physical_device()
+        //         .surface_capabilities(&surface, Default::default())
+        //         .unwrap();
+        //     let image_format = device
+        //         .physical_device()
+        //         .surface_formats(&surface, Default::default())
+        //         .unwrap()[0]
+        //         .0;
+        //
+        //     Swapchain::new(
+        //         device.clone(),
+        //         surface,
+        //         SwapchainCreateInfo {
+        //             min_image_count: surface_capabilities.min_image_count.max(2),
+        //             image_format,
+        //             image_extent: window.inner_size().into(),
+        //             image_usage: ImageUsage::COLOR_ATTACHMENT,
+        //             composite_alpha: surface_capabilities
+        //                 .supported_composite_alpha
+        //                 .into_iter()
+        //                 .next()
+        //                 .unwrap(),
+        //             present_mode: PresentMode::Mailbox,
+        //             ..Default::default()
+        //         },
+        //     )
+        //     .expect("[𐄂] failed to create swapchain")
+        // };
+        //
+        // println!("[✓] swapchain created");
 
-        let (device, mut queues) = Device::new(
-            physical_device,
-            DeviceCreateInfo {
-                enabled_extensions: device_extensions,
-                enabled_features: features,
-                queue_create_infos: vec![QueueCreateInfo {
-                    queue_family_index,
-                    ..Default::default()
-                }],
+        let device = gfx_queue.device();
+
+        let memory_allocator = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
+        let command_buffer_allocator = Arc::new(StandardCommandBufferAllocator::new(
+            device.clone(),
+            StandardCommandBufferAllocatorCreateInfo {
+                secondary_buffer_count: 32,
                 ..Default::default()
             },
-        )
-        .expect("[𐄂] failed to create device");
-        println!("[✓] device created");
+        ));
+        let descriptor_set_allocator = Arc::new(StandardDescriptorSetAllocator::new(
+            device.clone(),
+            Default::default(),
+        ));
 
-        let queue = queues.next().expect("[𐄂] failed to create queue");
-        println!("[✓] queue created");
-        //
-        let (swapchain, images) = {
-            let surface_capabilities = device
-                .physical_device()
-                .surface_capabilities(&surface, Default::default())
-                .unwrap();
-            let image_format = device
-                .physical_device()
-                .surface_formats(&surface, Default::default())
-                .unwrap()[0]
-                .0;
-
-            Swapchain::new(
-                device.clone(),
-                surface,
-                SwapchainCreateInfo {
-                    min_image_count: surface_capabilities.min_image_count.max(2),
-                    image_format,
-                    image_extent: window.inner_size().into(),
-                    image_usage: ImageUsage::COLOR_ATTACHMENT,
-                    composite_alpha: surface_capabilities
-                        .supported_composite_alpha
-                        .into_iter()
-                        .next()
-                        .unwrap(),
-                    present_mode: PresentMode::Mailbox,
-                    ..Default::default()
-                },
-            )
-            .expect("[𐄂] failed to create swapchain")
-        };
-        println!("[✓] swapchain created");
-        //
-        let memory_allocator = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
-        //
-        // // let vertices = [
-        // //     Vertex {
-        // //         position: [-0.5, -0.5],
-        // //     },
-        // //     Vertex {
-        // //         position: [-0.5, 0.5],
-        // //     },
-        // //     Vertex {
-        // //         position: [0.5, -0.5],
-        // //     },
-        // //     Vertex {
-        // //         position: [0.5, 0.5],
-        // //     },
-        // // ];
-        // // let vertex_buffer = Buffer::from_iter(
-        // //     memory_allocator.clone(),
-        // //     BufferCreateInfo {
-        // //         usage: BufferUsage::VERTEX_BUFFER,
-        // //         ..Default::default()
-        // //     },
-        // //     AllocationCreateInfo {
-        // //         memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
-        // //             | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-        // //         ..Default::default()
-        // //     },
-        // //     vertices,
-        // // )
-        // // .expect("[𐄂] failed to create vertex buffer");
-        // // println!("[✓] vertex buffer created");
-        //
         let packed_tree = tree.pack();
-        //
+
         let node_buffer = Buffer::from_iter(
             memory_allocator.clone(),
             BufferCreateInfo {
@@ -278,12 +292,12 @@ impl State {
         )
         .expect("[𐄂] failed to create voxel buffer");
         println!("[✓] voxel buffer created");
-        //
+
         let render_pass = vulkano::single_pass_renderpass!(
             device.clone(),
             attachments: {
                 color: {
-                    format: swapchain.image_format(),
+                    format: primary_window_renderer.swapchain_format(),
                     samples: 1,
                     load_op: Clear,
                     store_op: Store,
@@ -296,168 +310,11 @@ impl State {
         )
         .expect("[𐄂] failed to create render pass");
         println!("[✓] render pass created");
-        //
-        let descriptor_set_allocator = Arc::new(StandardDescriptorSetAllocator::new(
-            device.clone(),
-            Default::default(),
-        ));
-        let command_buffer_allocator = Arc::new(StandardCommandBufferAllocator::new(
-            device.clone(),
-            Default::default(),
-        ));
-        let mut uploads = AutoCommandBufferBuilder::primary(
-            &command_buffer_allocator,
-            queue.queue_family_index(),
-            CommandBufferUsage::OneTimeSubmit,
-        )
-        .unwrap();
-        //
-        // let texture = {
-        //     let png_bytes = include_bytes!("image_img.png").as_slice();
-        //     let decoder = png::Decoder::new(png_bytes);
-        //     let mut reader = decoder.read_info().unwrap();
-        //     let info = reader.info();
-        //     let extent = [info.width, info.height, 1];
-        //
-        //     let upload_buffer = Buffer::new_slice(
-        //         memory_allocator.clone(),
-        //         BufferCreateInfo {
-        //             usage: BufferUsage::TRANSFER_SRC,
-        //             ..Default::default()
-        //         },
-        //         AllocationCreateInfo {
-        //             memory_type_filter: MemoryTypeFilter::PREFER_HOST
-        //                 | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-        //             ..Default::default()
-        //         },
-        //         (info.width * info.height * 4) as DeviceSize,
-        //     )
-        //     .unwrap();
-        //
-        //     reader
-        //         .next_frame(&mut upload_buffer.write().unwrap())
-        //         .unwrap();
-        //
-        //     let image = Image::new(
-        //         memory_allocator,
-        //         ImageCreateInfo {
-        //             image_type: ImageType::Dim2d,
-        //             format: Format::R8G8B8A8_SRGB,
-        //             extent,
-        //             usage: ImageUsage::TRANSFER_DST | ImageUsage::SAMPLED,
-        //             ..Default::default()
-        //         },
-        //         AllocationCreateInfo::default(),
-        //     )
-        //     .unwrap();
-        //
-        //     uploads
-        //         .copy_buffer_to_image(CopyBufferToImageInfo::buffer_image(
-        //             upload_buffer,
-        //             image.clone(),
-        //         ))
-        //         .unwrap();
-        //
-        //     ImageView::new_default(image).unwrap()
-        // };
-        //
-        // let sampler = Sampler::new(
-        //     device.clone(),
-        //     SamplerCreateInfo {
-        //         mag_filter: Filter::Linear,
-        //         min_filter: Filter::Linear,
-        //         address_mode: [SamplerAddressMode::Repeat; 3],
-        //         ..Default::default()
-        //     },
-        // )
-        // .unwrap();
-        //
-        // let pipeline = {
-        //     let vs = crate::vs::load(device.clone())
-        //         .unwrap()
-        //         .single_entry_point()
-        //         .unwrap();
-        //     let fs = crate::fs::load(device.clone())
-        //         .unwrap()
-        //         .single_entry_point()
-        //         .unwrap();
-        //     let vertex_input_state = Vertex::per_vertex()
-        //         .definition(&vs.info().input_interface)
-        //         .unwrap();
-        //     let stages = [
-        //         PipelineShaderStageCreateInfo::new(vs),
-        //         PipelineShaderStageCreateInfo::new(fs),
-        //     ];
-        //     let layout = PipelineLayout::new(
-        //         device.clone(),
-        //         PipelineDescriptorSetLayoutCreateInfo::from_stages(&stages)
-        //             .into_pipeline_layout_create_info(device.clone())
-        //             .unwrap(),
-        //     )
-        //     .unwrap();
-        //     let subpass = Subpass::from(render_pass.clone(), 0).unwrap();
-        //
-        //     GraphicsPipeline::new(
-        //         device.clone(),
-        //         None,
-        //         GraphicsPipelineCreateInfo {
-        //             stages: stages.into_iter().collect(),
-        //             input_assembly_state: Some(InputAssemblyState {
-        //                 topology: PrimitiveTopology::TriangleStrip,
-        //                 ..Default::default()
-        //             }),
-        //             vertex_input_state: Some(vertex_input_state),
-        //             viewport_state: Some(ViewportState::default()),
-        //             rasterization_state: Some(RasterizationState::default()),
-        //             multisample_state: Some(MultisampleState::default()),
-        //             color_blend_state: Some(ColorBlendState::with_attachment_states(
-        //                 subpass.num_color_attachments(),
-        //                 ColorBlendAttachmentState {
-        //                     blend: Some(AttachmentBlend::alpha()),
-        //                     ..Default::default()
-        //                 },
-        //             )),
-        //             dynamic_state: [DynamicState::Viewport].into_iter().collect(),
-        //             subpass: Some(subpass.into()),
-        //             ..GraphicsPipelineCreateInfo::layout(layout)
-        //         },
-        //     )
-        //     .expect("[𐄂] failed to create graphics pipeline")
-        // };
-        // println!("[✓] graphics pipeline created");
-        //
-        // let layout = pipeline.layout().set_layouts().get(0).unwrap();
-        // let set = PersistentDescriptorSet::new(
-        //     &descriptor_set_allocator,
-        //     layout.clone(),
-        //     [
-        //         WriteDescriptorSet::sampler(0, sampler),
-        //         WriteDescriptorSet::image_view(1, texture),
-        //     ],
-        //     [],
-        // )
-        // .unwrap();
-        //
-        let mut viewport = Viewport {
-            offset: [0.0, 0.0],
-            extent: [0.0, 0.0],
-            depth_range: 0.0..=1.0,
-        };
-        let framebuffers = window_size_dependent_setup(&images, render_pass.clone(), &mut viewport);
-        //
-        let previous_frame_end = Some(
-            uploads
-                .build()
-                .unwrap()
-                .execute(queue.clone())
-                .unwrap()
-                .boxed(),
-        );
-        //
+
         let subpass = Subpass::from(render_pass.clone(), 0).unwrap();
 
         let pixels_pipeline = PixelsPipeline::new(
-            queue,
+            gfx_queue.clone(),
             subpass,
             memory_allocator,
             command_buffer_allocator,
@@ -465,7 +322,7 @@ impl State {
         );
 
         let raytracing_pipeline = RaytracingPipeline::new(
-            queue,
+            gfx_queue.clone(),
             memory_allocator,
             command_buffer_allocator,
             descriptor_set_allocator,
@@ -474,199 +331,108 @@ impl State {
         println!("\n...app initalization");
 
         Self {
-            window,
+            // window,
+            primary_window_renderer,
 
-            device,
-            queue,
+            // image: images[0],
+            device: device.clone(),
+            queue: gfx_queue.clone(),
 
-            swapchain,
-            recreate_swapchain: false,
             render_pass,
+
+            command_buffer_allocator,
 
             pixels_pipeline,
             raytracing_pipeline,
 
-            viewport,
-            // pipeline,
-            command_buffer_allocator,
-
-            // vertex_buffer,
             node_buffer,
             voxel_buffer,
 
-            previous_frame_end,
-            framebuffers,
-
-            // set,
             tree,
         }
     }
 
+    pub fn update(&mut self) {}
+
     pub fn render(&mut self) {
-        let image_extent: [u32; 2] = self.window.inner_size().into();
+        let before_pipeline_future = match self.primary_window_renderer.acquire() {
+            Err(e) => {
+                println!("{e}");
+                return;
+            }
+            Ok(future) => future,
+        };
 
-        if image_extent.contains(&0) {
-            return;
-        }
+        let image = self.primary_window_renderer.get_additional_image_view(0);
 
-        self.previous_frame_end.as_mut().unwrap().cleanup_finished();
+        let after_compute = self.raytracing_pipeline.compute(image);
 
-        if self.recreate_swapchain {
-            let (new_swapchain, new_images) = self
-                .swapchain
-                .recreate(SwapchainCreateInfo {
-                    image_extent,
-                    ..self.swapchain.create_info()
-                })
-                .expect("failed to recreate swapchain");
+        let after_renderpass_future = {
+            let target = self.primary_window_renderer.swapchain_image_view();
+            let image_dimensions: [u32; 2] = target.image().extent()[0..2].try_into().unwrap();
 
-            self.swapchain = new_swapchain;
-            self.framebuffers = window_size_dependent_setup(
-                &new_images,
+            let framebuffer = Framebuffer::new(
                 self.render_pass.clone(),
-                &mut self.viewport,
-            );
-            self.recreate_swapchain = false;
-        }
-
-        let (image_index, suboptimal, acquire_future) =
-            match acquire_next_image(self.swapchain.clone(), None).map_err(Validated::unwrap) {
-                Ok(r) => r,
-                Err(VulkanError::OutOfDate) => {
-                    self.recreate_swapchain = true;
-                    return;
-                }
-                Err(e) => panic!("failed to acquire next image: {e}"),
-            };
-
-        if suboptimal {
-            self.recreate_swapchain = true;
-        }
-
-        let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
-            self.command_buffer_allocator.as_ref(),
-            self.queue.queue_family_index(),
-            CommandBufferUsage::OneTimeSubmit,
-        )
-        .unwrap();
-
-        command_buffer_builder
-            .begin_render_pass(
-                RenderPassBeginInfo {
-                    clear_values: vec![Some([0.0; 4].into())],
-                    ..RenderPassBeginInfo::framebuffer(self.framebuffers[0])
-                },
-                SubpassBeginInfo {
-                    contents: SubpassContents::SecondaryCommandBuffers,
+                FramebufferCreateInfo {
+                    attachments: vec![target],
                     ..Default::default()
                 },
             )
             .unwrap();
 
-        let image_view = 
-            ImageView::new_default(image.clone()).unwrap();
+            let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
+                self.command_buffer_allocator.as_ref(),
+                self.queue.queue_family_index(),
+                CommandBufferUsage::OneTimeSubmit,
+            )
+            .unwrap();
 
-        let cb = self.pixels_pipeline.render(image_extent, )
+            command_buffer_builder
+                .begin_render_pass(
+                    RenderPassBeginInfo {
+                        clear_values: vec![Some([0.0; 4].into())],
+                        ..RenderPassBeginInfo::framebuffer(framebuffer)
+                    },
+                    SubpassBeginInfo {
+                        contents: SubpassContents::SecondaryCommandBuffers,
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
 
-        // let mut builder = AutoCommandBufferBuilder::primary(
-        //     &self.command_buffer_allocator,
-        //     self.queue.queue_family_index(),
-        //     CommandBufferUsage::OneTimeSubmit,
-        // )
-        // .unwrap();
-        // builder
-        //     .begin_render_pass(
-        //         RenderPassBeginInfo {
-        //             clear_values: vec![Some([0.0, 0.0, 1.0, 1.0].into())],
-        //             ..RenderPassBeginInfo::framebuffer(
-        //                 self.framebuffers[image_index as usize].clone(),
-        //             )
-        //         },
-        //         Default::default(),
-        //     )
-        //     .unwrap()
-        //     .set_viewport(0, [self.viewport.clone()].into_iter().collect())
-        //     .unwrap()
-        //     .bind_pipeline_graphics(self.pipeline.clone())
-        //     .unwrap()
-        //     .bind_descriptor_sets(
-        //         PipelineBindPoint::Graphics,
-        //         self.pipeline.layout().clone(),
-        //         0,
-        //         self.set.clone(),
-        //     )
-        //     .unwrap()
-        //     .bind_vertex_buffers(0, self.vertex_buffer.clone())
-        //     .unwrap()
-        //     .draw(self.vertex_buffer.len() as u32, 1, 0, 0)
-        //     .unwrap()
-        //     .end_render_pass(Default::default())
-        //     .unwrap();
-        // let command_buffer = builder.build().unwrap();
-        //
-        // let future = self
-        //     .previous_frame_end
-        //     .take()
-        //     .unwrap()
-        //     .join(acquire_future)
-        //     .then_execute(self.queue.clone(), command_buffer)
-        //     .unwrap()
-        //     .then_swapchain_present(
-        //         self.queue.clone(),
-        //         SwapchainPresentInfo::swapchain_image_index(self.swapchain.clone(), image_index),
-        //     )
-        //     .then_signal_fence_and_flush();
-        //
-        // match future.map_err(Validated::unwrap) {
-        //     Ok(future) => {
-        //         self.previous_frame_end = Some(future.boxed());
-        //     }
-        //     Err(VulkanError::OutOfDate) => {
-        //         self.recreate_swapchain = true;
-        //         self.previous_frame_end = Some(sync::now(self.device.clone()).boxed());
-        //     }
-        //     Err(e) => {
-        //         println!("failed to flush future: {e}");
-        //         self.previous_frame_end = Some(sync::now(self.device.clone()).boxed());
-        //     }
-        // }
+            let cb = self.pixels_pipeline.render(image_dimensions, image);
+
+            command_buffer_builder.execute_commands(cb).unwrap();
+
+            command_buffer_builder
+                .end_render_pass(Default::default())
+                .unwrap();
+
+            let command_buffer = command_buffer_builder.build().unwrap();
+
+            after_compute
+                .then_execute(self.queue.clone(), command_buffer)
+                .unwrap()
+                .boxed()
+        };
+
+        self.primary_window_renderer
+            .present(after_renderpass_future, true);
     }
 
     pub fn handle_event(&mut self, event: Event<()>, control_flow: &mut ControlFlow) {
         match event {
-            Event::WindowEvent { window_id, event } if window_id == self.window.id() => match event
+            Event::WindowEvent { window_id, event }
+                if window_id == self.primary_window_renderer.window().id() =>
             {
-                WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
-                WindowEvent::Resized(_) => self.recreate_swapchain = true,
-                _ => (),
-            },
+                match event {
+                    WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
+                    // WindowEvent::Resized(_) => self.recreate_swapchain = true,
+                    _ => (),
+                }
+            }
             Event::RedrawEventsCleared => self.render(),
             _ => (),
         }
     }
-}
-
-/// This function is called once during initialization, then again whenever the window is resized.
-fn window_size_dependent_setup(
-    images: &[Arc<Image>],
-    render_pass: Arc<RenderPass>,
-    viewport: &mut Viewport,
-) -> Vec<Arc<Framebuffer>> {
-    let extent = images[0].extent();
-    viewport.extent = [extent[0] as f32, extent[1] as f32];
-
-    images
-        .iter()
-        .map(|image| {
-            let view = ImageView::new_default(image.clone()).unwrap();
-            Framebuffer::new(
-                render_pass.clone(),
-                FramebufferCreateInfo {
-                    attachments: vec![view],
-                    ..Default::default()
-                },
-            )
-            .unwrap()
-        })
-        .collect::<Vec<_>>()
 }

@@ -93,6 +93,7 @@ dependencies = [
  "voxtree",
  "vulkano",
  "vulkano-shaders",
+ "vulkano-util",
  "vulkano-win",
  "winit",
 ]
@@ -1195,7 +1196,6 @@ version = "0.1.0"
 dependencies = [
  "shared",
  "spirv-std",
- "voxtree",
 ]
 
 [[package]]
@@ -1578,6 +1578,17 @@ dependencies = [
  "shaderc",
  "syn 2.0.48",
  "vulkano",
+]
+
+[[package]]
+name = "vulkano-util"
+version = "0.34.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ff1f96a4055a8362c8fa77a17c01da184c6412961cd9572110533ff89e6669a7"
+dependencies = [
+ "ahash 0.8.6",
+ "vulkano",
+ "winit",
 ]
 
 [[package]]
