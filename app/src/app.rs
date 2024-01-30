@@ -384,7 +384,10 @@ impl State {
 
         let image = primary_window_renderer.get_additional_image_view(0);
 
-        let after_compute = self.raytracing_pipeline.compute(image.clone());
+        let after_compute = self
+            .raytracing_pipeline
+            .compute(image.clone())
+            .join(before_pipeline_future);
 
         let after_renderpass_future = {
             let target = primary_window_renderer.swapchain_image_view();
