@@ -21,7 +21,7 @@ use vulkano::{
             input_assembly::InputAssemblyState,
             multisample::MultisampleState,
             rasterization::RasterizationState,
-            vertex_input::{Vertex, VertexInputState},
+            vertex_input::{Vertex, VertexDefinition, VertexInputState},
             viewport::{Viewport, ViewportState},
             GraphicsPipelineCreateInfo,
         },
@@ -89,7 +89,7 @@ impl PixelsPipeline {
     ) -> Self {
         let (vertices, indices) = textured_quad(2.0, 2.0);
         let vertex_buffer = Buffer::from_iter(
-            memory_allocator,
+            memory_allocator.clone(),
             BufferCreateInfo {
                 usage: BufferUsage::VERTEX_BUFFER,
                 ..Default::default()
@@ -105,7 +105,7 @@ impl PixelsPipeline {
         let index_buffer = Buffer::from_iter(
             memory_allocator,
             BufferCreateInfo {
-                usage: BufferUsage::VERTEX_BUFFER,
+                usage: BufferUsage::INDEX_BUFFER,
                 ..Default::default()
             },
             AllocationCreateInfo {
@@ -128,7 +128,7 @@ impl PixelsPipeline {
                 .single_entry_point()
                 .unwrap();
             let stages = [
-                PipelineShaderStageCreateInfo::new(vs),
+                PipelineShaderStageCreateInfo::new(vs.clone()),
                 PipelineShaderStageCreateInfo::new(fs),
             ];
             let layout = PipelineLayout::new(
@@ -144,7 +144,11 @@ impl PixelsPipeline {
                 None,
                 GraphicsPipelineCreateInfo {
                     stages: stages.into_iter().collect(),
-                    vertex_input_state: Some(VertexInputState::default()),
+                    vertex_input_state: Some(
+                        TexturedVertex::per_vertex()
+                            .definition(&vs.info().input_interface)
+                            .unwrap(),
+                    ),
                     input_assembly_state: Some(InputAssemblyState::default()),
                     viewport_state: Some(ViewportState::default()),
                     rasterization_state: Some(RasterizationState::default()),
@@ -231,7 +235,7 @@ impl PixelsPipeline {
                 .collect(),
             )
             .unwrap()
-            .bind_pipeline_graphics(self.pipeline)
+            .bind_pipeline_graphics(self.pipeline.clone())
             .unwrap()
             .bind_descriptor_sets(
                 PipelineBindPoint::Graphics,
@@ -240,9 +244,9 @@ impl PixelsPipeline {
                 descriptor_set,
             )
             .unwrap()
-            .bind_vertex_buffers(0, self.vertices)
+            .bind_vertex_buffers(0, self.vertices.clone())
             .unwrap()
-            .bind_index_buffer(self.indices)
+            .bind_index_buffer(self.indices.clone())
             .unwrap()
             .draw_indexed(self.indices.len() as u32, 1, 0, 0, 0)
             .unwrap();

@@ -14,7 +14,7 @@ use-compiled-tools = ["spirv-builder/use-compiled-tools"]
 use-glsl-shader = []
 
 [dependencies]
-vulkano = "0.34"
+vulkano = "0.34" 
 vulkano-util = "0.34"
 vulkano-shaders = "0.34"
 vulkano-win = "0.34"

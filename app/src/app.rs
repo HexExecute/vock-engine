@@ -65,7 +65,8 @@ use crate::{pixels_pipeline::PixelsPipeline, raytracing_pipeline::RaytracingPipe
 
 pub struct State {
     // window: Arc<Window>,
-    primary_window_renderer: &'static mut VulkanoWindowRenderer,
+    // primary_window_renderer: &mut VulkanoWindowRenderer,
+    windows: VulkanoWindows,
 
     // image: Arc<Image>,
     device: Arc<Device>,
@@ -88,20 +89,32 @@ impl State {
     pub fn new(event_loop: &EventLoop<()>) -> Self {
         println!("app initialization...\n");
 
-        let library = VulkanLibrary::new().unwrap();
-        let context = VulkanoContext::new(VulkanoConfig::default());
+        // let library = VulkanLibrary::new().unwrap();
         let required_extensions = Surface::required_extensions(&event_loop);
-        let instance = Instance::new(
-            library,
-            InstanceCreateInfo {
+        let context = VulkanoContext::new(VulkanoConfig {
+            device_extensions: DeviceExtensions {
+                khr_swapchain: true,
+                khr_vulkan_memory_model: true,
+                ..Default::default()
+            },
+            device_features: Features {
+                vulkan_memory_model: true,
+                ..Features::empty()
+            },
+            instance_create_info: InstanceCreateInfo {
                 flags: InstanceCreateFlags::ENUMERATE_PORTABILITY,
                 enabled_extensions: required_extensions,
                 ..Default::default()
             },
-        )
-        .expect("[𐄂] failed to create instance");
+            ..Default::default()
+        });
+
+        let instance = context.instance();
+        // .expect("[𐄂] failed to create instance");
         println!("[✓] instance created");
-        let windows = VulkanoWindows::default();
+
+        let mut windows = VulkanoWindows::default();
+
         let window_id = windows.create_window(
             event_loop,
             &context,
@@ -316,15 +329,15 @@ impl State {
         let pixels_pipeline = PixelsPipeline::new(
             gfx_queue.clone(),
             subpass,
-            memory_allocator,
-            command_buffer_allocator,
-            descriptor_set_allocator,
+            memory_allocator.clone(),
+            command_buffer_allocator.clone(),
+            descriptor_set_allocator.clone(),
         );
 
         let raytracing_pipeline = RaytracingPipeline::new(
             gfx_queue.clone(),
             memory_allocator,
-            command_buffer_allocator,
+            command_buffer_allocator.clone(),
             descriptor_set_allocator,
         );
 
@@ -332,7 +345,8 @@ impl State {
 
         Self {
             // window,
-            primary_window_renderer,
+            // primary_window_renderer,
+            windows,
 
             // image: images[0],
             device: device.clone(),
@@ -355,7 +369,12 @@ impl State {
     pub fn update(&mut self) {}
 
     pub fn render(&mut self) {
-        let before_pipeline_future = match self.primary_window_renderer.acquire() {
+        let mut primary_window_renderer = self
+            .windows
+            .get_primary_renderer_mut()
+            .expect("[𐄂] failed to create primary window renderer");
+
+        let before_pipeline_future = match primary_window_renderer.acquire() {
             Err(e) => {
                 println!("{e}");
                 return;
@@ -363,12 +382,12 @@ impl State {
             Ok(future) => future,
         };
 
-        let image = self.primary_window_renderer.get_additional_image_view(0);
+        let image = primary_window_renderer.get_additional_image_view(0);
 
-        let after_compute = self.raytracing_pipeline.compute(image);
+        let after_compute = self.raytracing_pipeline.compute(image.clone());
 
         let after_renderpass_future = {
-            let target = self.primary_window_renderer.swapchain_image_view();
+            let target = primary_window_renderer.swapchain_image_view();
             let image_dimensions: [u32; 2] = target.image().extent()[0..2].try_into().unwrap();
 
             let framebuffer = Framebuffer::new(
@@ -416,14 +435,18 @@ impl State {
                 .boxed()
         };
 
-        self.primary_window_renderer
-            .present(after_renderpass_future, true);
+        primary_window_renderer.present(after_renderpass_future, true);
     }
 
     pub fn handle_event(&mut self, event: Event<()>, control_flow: &mut ControlFlow) {
+        let primary_window_renderer = self
+            .windows
+            .get_primary_renderer_mut()
+            .expect("[𐄂] failed to create primary window renderer");
+
         match event {
             Event::WindowEvent { window_id, event }
-                if window_id == self.primary_window_renderer.window().id() =>
+                if window_id == primary_window_renderer.window().id() =>
             {
                 match event {
                     WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
