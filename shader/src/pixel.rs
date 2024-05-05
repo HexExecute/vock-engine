@@ -8,7 +8,7 @@ pub fn main_vs(
     #[spirv(position, invariant)] out_pos: &mut Vec4,
 ) {
     *out_pos = vec4(position.x, position.y, 0.0, 1.0);
-    *tex_coord = position + vec2(0.5, 0.5);
+    *tex_coord = (position + vec2(1.0, 1.0)) / 2.0;
 }
 
 #[spirv(fragment)]
@@ -18,7 +18,5 @@ pub fn main_fs(
     #[spirv(descriptor_set = 0, binding = 1)] image: &Image!(2D, type=f32, sampled),
     frag_color: &mut Vec4,
 ) {
-    // *frag_color = vec4(tex_coord.x, tex_coord.y, 0.0, 1.0);
-    // *frag_color = vec4(0.0, 0.0, 0.0, 1.0);
     *frag_color = image.sample(*sampler, tex_coord);
 }

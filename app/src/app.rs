@@ -1,64 +1,31 @@
 use std::sync::Arc;
 
+use shared::ShaderConstants;
 use voxtree::{Node, Voxtree};
 use vulkano::{
-    buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer},
+    buffer::{Buffer, BufferCreateInfo, BufferUsage, Subbuffer},
     command_buffer::{
-        allocator::{
-            CommandBufferAllocator, StandardCommandBufferAllocator,
-            StandardCommandBufferAllocatorCreateInfo,
-        },
-        AutoCommandBufferBuilder, CommandBufferUsage, CopyBufferToImageInfo,
-        PrimaryCommandBufferAbstract, RenderPassBeginInfo, SubpassBeginInfo, SubpassContents,
+        allocator::{StandardCommandBufferAllocator, StandardCommandBufferAllocatorCreateInfo},
+        AutoCommandBufferBuilder, CommandBufferUsage, RenderPassBeginInfo, SubpassBeginInfo,
+        SubpassContents,
     },
-    descriptor_set::{
-        allocator::{StandardDescriptorSetAlloc, StandardDescriptorSetAllocator},
-        PersistentDescriptorSet, WriteDescriptorSet,
-    },
-    device::{
-        physical::PhysicalDeviceType, Device, DeviceCreateInfo, DeviceExtensions, Features, Queue,
-        QueueCreateInfo, QueueFlags,
-    },
-    format::Format,
-    image::{
-        sampler::{Filter, Sampler, SamplerAddressMode, SamplerCreateInfo},
-        view::ImageView,
-        Image, ImageCreateInfo, ImageType, ImageUsage,
-    },
-    instance::{Instance, InstanceCreateFlags, InstanceCreateInfo},
+    descriptor_set::allocator::StandardDescriptorSetAllocator,
+    device::{Device, DeviceExtensions, Features, Queue},
+    image::ImageUsage,
+    instance::{InstanceCreateFlags, InstanceCreateInfo},
     memory::allocator::{AllocationCreateInfo, MemoryTypeFilter, StandardMemoryAllocator},
-    pipeline::{
-        graphics::{
-            color_blend::{AttachmentBlend, ColorBlendAttachmentState, ColorBlendState},
-            input_assembly::{InputAssemblyState, PrimitiveTopology},
-            multisample::MultisampleState,
-            rasterization::RasterizationState,
-            vertex_input::{Vertex as InputVertex, VertexDefinition},
-            viewport::{Viewport, ViewportState},
-            GraphicsPipelineCreateInfo,
-        },
-        layout::PipelineDescriptorSetLayoutCreateInfo,
-        DynamicState, GraphicsPipeline, Pipeline, PipelineBindPoint, PipelineLayout,
-        PipelineShaderStageCreateInfo,
-    },
     render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass},
-    swapchain::{
-        acquire_next_image, PresentMode, Surface, Swapchain, SwapchainCreateInfo,
-        SwapchainPresentInfo,
-    },
-    sync::{self, GpuFuture},
-    DeviceSize, Validated, VulkanError, VulkanLibrary,
+    swapchain::{PresentMode, Surface},
+    sync::GpuFuture,
 };
 use vulkano_util::{
     context::{VulkanoConfig, VulkanoContext},
-    renderer::{VulkanoWindowRenderer, DEFAULT_IMAGE_FORMAT},
+    renderer::DEFAULT_IMAGE_FORMAT,
     window::{VulkanoWindows, WindowDescriptor},
 };
 use winit::{
-    dpi::PhysicalSize,
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
-    window::{Window, WindowBuilder},
 };
 
 use crate::{pixels_pipeline::PixelsPipeline, raytracing_pipeline::RaytracingPipeline};
@@ -80,16 +47,17 @@ pub struct State {
     raytracing_pipeline: RaytracingPipeline,
 
     node_buffer: Subbuffer<[[u32; 8]]>,
-    voxel_buffer: Subbuffer<[f32]>,
+    voxel_buffer: Subbuffer<[u32]>,
 
-    tree: Voxtree<f32>,
+    push_constants: ShaderConstants,
+
+    tree: Voxtree<u32>,
 }
 
 impl State {
     pub fn new(event_loop: &EventLoop<()>) -> Self {
         println!("app initialization...\n");
 
-        // let library = VulkanLibrary::new().unwrap();
         let required_extensions = Surface::required_extensions(&event_loop);
         let context = VulkanoContext::new(VulkanoConfig {
             device_extensions: DeviceExtensions {
@@ -109,18 +77,18 @@ impl State {
             ..Default::default()
         });
 
-        let instance = context.instance();
-        // .expect("[𐄂] failed to create instance");
         println!("[✓] instance created");
 
         let mut windows = VulkanoWindows::default();
 
-        let window_id = windows.create_window(
+        windows.create_window(
             event_loop,
             &context,
             &WindowDescriptor {
                 title: "app".to_string(),
                 present_mode: PresentMode::Mailbox,
+                width: 512.0,
+                height: 512.0,
                 ..Default::default()
             },
             |_| {},
@@ -139,12 +107,11 @@ impl State {
         );
 
         let gfx_queue = context.graphics_queue();
-        // let device = queue.device();
 
-        let tree: Voxtree<f32> = Voxtree::builder()
+        let tree: Voxtree<u32> = Voxtree::builder()
             .with_max_depth(8)
             .with_root(Node::Branch(Box::new([
-                Node::Leaf(Some(0.0)),
+                Node::Leaf(Some(0)),
                 Node::Leaf(None),
                 Node::Leaf(None),
                 Node::Leaf(None),
@@ -155,107 +122,6 @@ impl State {
             ])))
             .build();
         println!("[✓] voxtree created");
-
-        // let window = Arc::new(
-        //     WindowBuilder::new()
-        //         .with_title("app")
-        //         .with_inner_size(PhysicalSize::new(1024, 1024))
-        //         .build(event_loop)
-        //         .expect("[𐄂] failed to create window"),
-        // );
-        // println!("[✓] window created");
-        // let surface = Surface::from_window(instance.clone(), window.clone()).unwrap();
-
-        // let device_extensions = DeviceExtensions {
-        //     khr_swapchain: true,
-        //     khr_vulkan_memory_model: true,
-        //     ..Default::default()
-        // };
-        // let features = Features {
-        //     vulkan_memory_model: true,
-        //     ..Features::empty()
-        // };
-        // let (physical_device, queue_family_index) = instance
-        //     .enumerate_physical_devices()
-        //     .unwrap()
-        //     .filter(|p| p.supported_extensions().contains(&device_extensions))
-        //     .filter(|p| p.supported_features().contains(&features))
-        //     .filter_map(|p| {
-        //         p.queue_family_properties()
-        //             .iter()
-        //             .enumerate()
-        //             .position(|(i, q)| {
-        //                 q.queue_flags.intersects(QueueFlags::GRAPHICS)
-        //                     && p.surface_support(i as u32, &surface).unwrap_or(false)
-        //             })
-        //             .map(|i| (p, i as u32))
-        //     })
-        //     .min_by_key(|(p, _)| match p.properties().device_type {
-        //         PhysicalDeviceType::DiscreteGpu => 0,
-        //         PhysicalDeviceType::IntegratedGpu => 1,
-        //         PhysicalDeviceType::VirtualGpu => 2,
-        //         PhysicalDeviceType::Cpu => 3,
-        //         PhysicalDeviceType::Other => 4,
-        //         _ => 5,
-        //     })
-        //     .unwrap();
-        //
-        // println!(
-        //     "[✓] using device: {} (type: {:?})",
-        //     physical_device.properties().device_name,
-        //     physical_device.properties().device_type,
-        // );
-        //
-        // let (device, mut queues) = Device::new(
-        //     physical_device,
-        //     DeviceCreateInfo {
-        //         enabled_extensions: device_extensions,
-        //         enabled_features: features,
-        //         queue_create_infos: vec![QueueCreateInfo {
-        //             queue_family_index,
-        //             ..Default::default()
-        //         }],
-        //         ..Default::default()
-        //     },
-        // )
-        // .expect("[𐄂] failed to create device");
-        // println!("[✓] device created");
-
-        // let queue = queues.next().expect("[𐄂] failed to create queue");
-        // println!("[✓] queue created");
-        //
-        // let (swapchain, images) = {
-        //     let surface_capabilities = device
-        //         .physical_device()
-        //         .surface_capabilities(&surface, Default::default())
-        //         .unwrap();
-        //     let image_format = device
-        //         .physical_device()
-        //         .surface_formats(&surface, Default::default())
-        //         .unwrap()[0]
-        //         .0;
-        //
-        //     Swapchain::new(
-        //         device.clone(),
-        //         surface,
-        //         SwapchainCreateInfo {
-        //             min_image_count: surface_capabilities.min_image_count.max(2),
-        //             image_format,
-        //             image_extent: window.inner_size().into(),
-        //             image_usage: ImageUsage::COLOR_ATTACHMENT,
-        //             composite_alpha: surface_capabilities
-        //                 .supported_composite_alpha
-        //                 .into_iter()
-        //                 .next()
-        //                 .unwrap(),
-        //             present_mode: PresentMode::Mailbox,
-        //             ..Default::default()
-        //         },
-        //     )
-        //     .expect("[𐄂] failed to create swapchain")
-        // };
-        //
-        // println!("[✓] swapchain created");
 
         let device = gfx_queue.device();
 
@@ -329,14 +195,13 @@ impl State {
         let pixels_pipeline = PixelsPipeline::new(
             gfx_queue.clone(),
             subpass,
-            memory_allocator.clone(),
+            memory_allocator,
             command_buffer_allocator.clone(),
             descriptor_set_allocator.clone(),
         );
 
         let raytracing_pipeline = RaytracingPipeline::new(
             gfx_queue.clone(),
-            memory_allocator,
             command_buffer_allocator.clone(),
             descriptor_set_allocator,
         );
@@ -344,11 +209,8 @@ impl State {
         println!("\n...app initalization");
 
         Self {
-            // window,
-            // primary_window_renderer,
             windows,
 
-            // image: images[0],
             device: device.clone(),
             queue: gfx_queue.clone(),
 
@@ -362,6 +224,11 @@ impl State {
             node_buffer,
             voxel_buffer,
 
+            push_constants: ShaderConstants {
+                tree_root: packed_tree.root,
+                tree_scale: packed_tree.scale,
+            },
+
             tree,
         }
     }
@@ -369,7 +236,7 @@ impl State {
     pub fn update(&mut self) {}
 
     pub fn render(&mut self) {
-        let mut primary_window_renderer = self
+        let primary_window_renderer = self
             .windows
             .get_primary_renderer_mut()
             .expect("[𐄂] failed to create primary window renderer");
@@ -386,7 +253,12 @@ impl State {
 
         let after_compute = self
             .raytracing_pipeline
-            .compute(image.clone())
+            .compute(
+                image.clone(),
+                self.node_buffer.clone(),
+                self.voxel_buffer.clone(),
+                self.push_constants,
+            )
             .join(before_pipeline_future);
 
         let after_renderpass_future = {

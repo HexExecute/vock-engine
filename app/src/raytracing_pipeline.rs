@@ -1,17 +1,16 @@
+use shared::ShaderConstants;
 use std::sync::Arc;
 use vulkano::{
-    buffer::{Buffer, BufferCreateInfo, BufferUsage, Subbuffer},
+    buffer::Subbuffer,
     command_buffer::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferUsage,
         PrimaryCommandBufferAbstract,
     },
     descriptor_set::{
-        self, allocator::StandardDescriptorSetAllocator, DescriptorSet, PersistentDescriptorSet,
-        WriteDescriptorSet,
+        allocator::StandardDescriptorSetAllocator, PersistentDescriptorSet, WriteDescriptorSet,
     },
     device::Queue,
     image::view::ImageView,
-    memory::allocator::{AllocationCreateInfo, MemoryTypeFilter, StandardMemoryAllocator},
     pipeline::{
         compute::ComputePipelineCreateInfo, layout::PipelineDescriptorSetLayoutCreateInfo,
         ComputePipeline, Pipeline, PipelineBindPoint, PipelineLayout,
@@ -24,7 +23,6 @@ pub struct RaytracingPipeline {
     queue: Arc<Queue>,
     pipeline: Arc<ComputePipeline>,
 
-    memory_allocator: Arc<StandardMemoryAllocator>,
     command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
     descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
 }
@@ -33,7 +31,6 @@ impl RaytracingPipeline {
     pub fn new(
         queue: Arc<Queue>,
 
-        memory_allocator: Arc<StandardMemoryAllocator>,
         command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
         descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
     ) -> Self {
@@ -64,20 +61,31 @@ impl RaytracingPipeline {
             queue,
             pipeline,
 
-            memory_allocator,
             command_buffer_allocator,
             descriptor_set_allocator,
         }
     }
 
-    pub fn compute(&self, image_view: Arc<ImageView>) -> Box<dyn GpuFuture> {
+    pub fn compute(
+        &self,
+        image_view: Arc<ImageView>,
+
+        node_buffer: Subbuffer<[[u32; 8]]>,
+        voxel_buffer: Subbuffer<[u32]>,
+
+        push_constants: ShaderConstants,
+    ) -> Box<dyn GpuFuture> {
         let image_extent = image_view.image().extent();
         let pipeline_layout = self.pipeline.layout();
         let descriptor_set_layout = &pipeline_layout.set_layouts()[0];
         let descriptor_set = PersistentDescriptorSet::new(
             &self.descriptor_set_allocator,
             descriptor_set_layout.clone(),
-            [WriteDescriptorSet::image_view(0, image_view)],
+            [
+                WriteDescriptorSet::image_view(0, image_view),
+                WriteDescriptorSet::buffer(1, node_buffer),
+                WriteDescriptorSet::buffer(2, voxel_buffer),
+            ],
             [],
         )
         .unwrap();
@@ -97,6 +105,8 @@ impl RaytracingPipeline {
                 0,
                 descriptor_set,
             )
+            .unwrap()
+            .push_constants(self.pipeline.layout().clone(), 0, push_constants)
             .unwrap()
             .dispatch([image_extent[0] / 8, image_extent[1] / 8, 1])
             .unwrap();

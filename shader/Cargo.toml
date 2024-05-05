@@ -10,5 +10,5 @@ crate-type = ["dylib"]
 
 [dependencies]
 spirv-std = "0.9"
-# voxtree = { version = "0.1.2", default-features = false }
+voxtree = { version = "0.1.4", default-features = false }
 shared = { path = "../shared" }

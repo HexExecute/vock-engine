@@ -2,13 +2,17 @@ use std::env;
 use std::error::Error;
 use std::path::PathBuf;
 
-use spirv_builder::{MetadataPrintout, SpirvBuilder, SpirvMetadata};
+use spirv_builder::{Capability, MetadataPrintout, SpirvBuilder, SpirvMetadata};
 
 const TARGET: &str = "spirv-unknown-vulkan1.2";
 const SHADER_PATH: &str = "shader";
 
 fn main() -> Result<(), Box<dyn Error>> {
     // main compile
+    let rustgpu_codegen_args =
+        "--no-early-report-zombies --no-infer-storage-classes --spirt-passes=qptr";
+    // println!("cargo:rustc-env=RUSTGPU_CODEGEN_ARGS={rustgpu_codegen_args}");
+    println!("RUSTGPU_CODEGEN_ARGS={rustgpu_codegen_args}");
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
     let crate_path = [manifest_dir, "..", SHADER_PATH]
         .iter()
@@ -16,6 +20,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .collect::<PathBuf>();
     let result = SpirvBuilder::new(crate_path, TARGET)
         .multimodule(true)
+        .capability(Capability::ImageQuery)
         // this needs at least NameVariables for vulkano to like the spv, but may also be Full
         .spirv_metadata(SpirvMetadata::NameVariables)
         .print_metadata(MetadataPrintout::DependencyOnly)

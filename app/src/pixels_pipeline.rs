@@ -21,7 +21,7 @@ use vulkano::{
             input_assembly::InputAssemblyState,
             multisample::MultisampleState,
             rasterization::RasterizationState,
-            vertex_input::{Vertex, VertexDefinition, VertexInputState},
+            vertex_input::{Vertex, VertexDefinition},
             viewport::{Viewport, ViewportState},
             GraphicsPipelineCreateInfo,
         },

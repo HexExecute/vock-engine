@@ -1,4 +1,3 @@
-// #[cfg(not(feature = "use-glsl-shader"))]
 pub mod vs {
     vulkano_shaders::shader! {
         ty: "vertex",
@@ -7,7 +6,6 @@ pub mod vs {
     }
 }
 
-// #[cfg(not(feature = "use-glsl-shader"))]
 pub mod fs {
     vulkano_shaders::shader! {
         ty: "fragment",

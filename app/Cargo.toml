@@ -24,7 +24,7 @@ bytemuck = { version = "1.7", features = ["derive", "extern_crate_std", "min_con
 png = "0.17"
 
 shared = { path = "../shared" }
-voxtree = "0.1.2"
+voxtree = "0.1.5"
 cgmath = "0.18.0"
 
 [build-dependencies]

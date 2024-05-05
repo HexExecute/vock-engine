@@ -1196,6 +1196,7 @@ version = "0.1.0"
 dependencies = [
  "shared",
  "spirv-std",
+ "voxtree",
 ]
 
 [[package]]
@@ -1222,6 +1223,9 @@ dependencies = [
 [[package]]
 name = "shared"
 version = "0.1.0"
+dependencies = [
+ "bytemuck",
+]
 
 [[package]]
 name = "simd-adler32"
@@ -1516,9 +1520,9 @@ dependencies = [
 
 [[package]]
 name = "voxtree"
-version = "0.1.2"
+version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5252d6cecdb5c54249f1182b89e8b8d30d72bbfbb088e6444dce0fbb156fecfb"
+checksum = "025c5be7ada14c79ae5b1ecd518481c0c9a95f3258ac8b672b4b6129323fdab1"
 dependencies = [
  "cgmath",
 ]

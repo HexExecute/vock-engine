@@ -9,4 +9,5 @@ license.workspace = true
 crate-type = ["lib"]
 
 [dependencies]
+bytemuck = { version = "1.6.3", features = ["derive"] }
 # spirv-std = "0.9"
